@@ -1,0 +1,108 @@
+{
+  "name": "tv-vigil",
+  "description": "Android TV background app watchdog — auto-kills rogue apps lingering in background without root. Deploys via ADB, survives reboots with watchdog.",
+  "prerequisites": {
+    "adb": true,
+    "root": false,
+    "network_adb": true,
+    "always_on_host": "optional, for watchdog persistence across TV reboots"
+  },
+  "commands": {
+    "vigil.sh": {
+      "description": "Management CLI for the appkiller daemon",
+      "usage": "./vigil.sh [--json] <subcommand> [args] [tv_ip]",
+      "default_target": "192.168.1.209",
+      "subcommands": {
+        "status": {
+          "description": "Full system state: daemon, stats, script presence",
+          "args": "[tv_ip]",
+          "json_output": "{connected, daemon, pid, uptime_min, total_cycles, total_kills, total_skips, script_installed}"
+        },
+        "log": {
+          "description": "Show recent log entries from the daemon",
+          "args": "[line_count] [tv_ip]",
+          "json_output": "{lines: [...]}"
+        },
+        "stats": {
+          "description": "Show kill statistics with per-app breakdown",
+          "args": "[tv_ip]",
+          "json_output": "{pid, uptime_min, total_cycles, total_kills, total_skips, per_app: {...}}"
+        },
+        "start": {
+          "description": "Push appkiller.sh to TV and start the daemon",
+          "args": "[tv_ip]",
+          "json_output": "{ok, pid}"
+        },
+        "stop": {
+          "description": "Stop the running daemon",
+          "args": "[tv_ip]",
+          "json_output": "{ok, was_running, killed_pid}"
+        }
+      },
+      "flags": {
+        "--json": "Output structured JSON to stdout instead of human-readable text"
+      },
+      "exit_codes": {
+        "0": "success",
+        "1": "invalid usage or bad arguments",
+        "2": "cannot connect to TV (ADB unreachable)",
+        "3": "daemon not running or no stats (informational)",
+        "4": "start/stop operation failed"
+      }
+    },
+    "setup.sh": {
+      "description": "One-command initial deployment: push appkiller to TV, start daemon, optionally install watchdog crontab",
+      "usage": "./setup.sh [tv_ip]",
+      "interactive": true,
+      "args": {
+        "tv_ip": "TV IP address (default 192.168.1.209)"
+      },
+      "exit_codes": {
+        "0": "success",
+        "1": "failure (adb not found, cannot connect, or daemon failed to start)"
+      }
+    },
+    "watchdog.sh": {
+      "description": "Keepalive script for always-on hosts — checks if appkiller is running on TV, restarts if not",
+      "usage": "/bin/sh watchdog.sh",
+      "note": "Config is hardcoded at top of file (ADB path, TV_IP). Designed for crontab.",
+      "exit_codes": {
+        "0": "daemon already running or successfully restarted",
+        "1": "cannot connect to TV"
+      }
+    },
+    "appkiller.sh": {
+      "description": "The daemon itself — runs ON the Android TV, not on the host. Managed via vigil.sh or setup.sh.",
+      "runs_on": "Android TV (via adb shell)",
+      "note": "Do not run directly from host. Use vigil.sh start instead."
+    }
+  },
+  "config": {
+    "appkiller": {
+      "location": "Top of appkiller.sh (edit before deployment)",
+      "schema": {
+        "THRESHOLD": {
+          "type": "integer",
+          "description": "Seconds an app must be in background before being killed",
+          "default": 180
+        },
+        "CHECK_INTERVAL": {
+          "type": "integer",
+          "description": "How often to check (seconds)",
+          "default": 60
+        },
+        "ROGUE_APPS": {
+          "type": "string",
+          "description": "Newline-separated list of package names to monitor"
+        }
+      }
+    },
+    "remote_paths": {
+      "script": "/data/local/tmp/appkiller.sh",
+      "log": "/data/local/tmp/appkiller.log",
+      "stats": "/data/local/tmp/appkiller_stats",
+      "lock": "/data/local/tmp/appkiller.lock",
+      "tracking": "/data/local/tmp/bg_track/"
+    }
+  }
+}

@@ -59,6 +59,27 @@ setup 脚本会自动完成：推送脚本到电视 → 启动 → 可选安装 
 
 ## 查看状态
 
+### 命令行管理 (vigil.sh)
+
+```bash
+# 查看完整状态（连接、守护进程、统计）
+./vigil.sh status [TV_IP]
+
+# 查看最近日志（默认 20 行）
+./vigil.sh log [行数] [TV_IP]
+
+# 查看击杀统计（含每应用明细）
+./vigil.sh stats [TV_IP]
+
+# 启动/重启守护进程（自动推送脚本）
+./vigil.sh start [TV_IP]
+
+# 停止守护进程
+./vigil.sh stop [TV_IP]
+```
+
+### 手动查看（直接 adb）
+
 ```bash
 # 实时日志（每次巡逻 + 每次杀应用都会记录）
 adb shell cat /data/local/tmp/appkiller.log
@@ -82,6 +103,47 @@ cat watchdog.log
 - Android 9+ (API 28+)
 - 无需 Root
 - 已测试：Sony BRAVIA (MT5895)，理论兼容所有 Android TV
+
+## Agent / 自动化接口
+
+`vigil.sh` 支持 `--json` 参数输出结构化 JSON，方便 AI agent 和脚本调用：
+
+```bash
+./vigil.sh --json status
+./vigil.sh --json stats
+./vigil.sh --json log 10
+./vigil.sh --json start
+./vigil.sh --json stop
+```
+
+示例输出 (`--json status`)：
+
+```json
+{
+  "connected": true,
+  "daemon": "running",
+  "pid": 1234,
+  "uptime_min": 45,
+  "total_cycles": 27,
+  "total_kills": 3,
+  "total_skips": 1,
+  "script_installed": true
+}
+```
+
+### 退出码
+
+| 代码 | 含义 |
+|------|------|
+| `0` | 成功 |
+| `1` | 参数错误 |
+| `2` | 无法连接电视（ADB 不可达） |
+| `3` | 守护进程未运行 / 无统计数据 |
+| `4` | 启动/停止操作失败 |
+
+### 项目清单
+
+`agent.json` 位于仓库根目录，以机器可读格式描述所有命令、参数、退出码和配置结构。
 
 ## AI 部署指南
 
