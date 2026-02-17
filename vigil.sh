@@ -34,6 +34,15 @@ else
   exit 1
 fi
 
+# --- JSON helpers (defined early for use in arg parsing) ---
+json_escape() {
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g' | tr -d '\n\r'
+}
+
+# Unified JSON envelope
+json_ok() { printf '{"ok":true,"error":null,"data":%s}\n' "$1"; }
+json_err() { printf '{"ok":false,"error":"%s","data":%s}\n' "$(json_escape "$1")" "${2:-null}"; }
+
 # --- Parse --json flag ---
 JSON=0
 if [ "$1" = "--json" ]; then
@@ -48,7 +57,7 @@ esac
 
 if [ -z "$CMD" ]; then
   if [ "$JSON" = 1 ]; then
-    printf '{"error":"missing command (status|log|stats|start|stop)"}\n'
+    json_err "missing command (status|log|stats|start|stop)"
   else
     echo "Usage: vigil.sh [--json] <status|log|stats|start|stop> [tv_ip]"
   fi
@@ -73,10 +82,6 @@ adb_sh() {
   MSYS_NO_PATHCONV=1 "$ADB" -s "$TV" shell "$@" < /dev/null 2>/dev/null
 }
 
-json_escape() {
-  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g' | tr -d '\n\r'
-}
-
 # Validate a value is digits-only; return 1 if not
 is_numeric() {
   case "$1" in
@@ -98,7 +103,7 @@ json_num() {
 MSYS_NO_PATHCONV=1 "$ADB" connect "$TV" < /dev/null >/dev/null 2>&1
 if ! adb_sh echo ok >/dev/null; then
   if [ "$JSON" = 1 ]; then
-    printf '{"error":"cannot connect to TV","target":"%s"}\n' "$(json_escape "$TV")"
+    json_err "cannot connect to TV" "$(printf '{"target":"%s"}' "$(json_escape "$TV")")"
   else
     echo "ERROR: Cannot reach $TV"
   fi
@@ -133,13 +138,17 @@ if [ "$CMD" = "status" ]; then
   [ -n "$SCRIPT_CHECK" ] && SCRIPT_INSTALLED=true
 
   if [ "$JSON" = 1 ]; then
-    printf '{"connected":true,"daemon":"%s",' "$DAEMON_STATE"
-    [ -n "$DAEMON_PID" ] && printf '"pid":%s,' "$DAEMON_PID" || printf '"pid":null,'
-    printf '"uptime_min":%s,' "$(json_num "$S_UPTIME")"
-    printf '"total_cycles":%s,' "$(json_num "$S_CYCLES")"
-    printf '"total_kills":%s,' "$(json_num "$S_KILLS")"
-    printf '"total_skips":%s,' "$(json_num "$S_SKIPS")"
-    printf '"script_installed":%s}\n' "$SCRIPT_INSTALLED"
+    _pid_json="null"
+    [ -n "$DAEMON_PID" ] && _pid_json="$DAEMON_PID"
+    _data=$(printf '{"connected":true,"daemon":"%s","pid":%s,"uptime_min":%s,"total_cycles":%s,"total_kills":%s,"total_skips":%s,"script_installed":%s}' \
+      "$DAEMON_STATE" "$_pid_json" "$(json_num "$S_UPTIME")" "$(json_num "$S_CYCLES")" "$(json_num "$S_KILLS")" "$(json_num "$S_SKIPS")" "$SCRIPT_INSTALLED")
+    if [ -z "$STATS_RAW" ] && [ -z "$DAEMON_PID" ]; then
+      json_err "daemon not running" "$_data"; exit 3
+    elif [ -z "$DAEMON_PID" ]; then
+      json_err "daemon not running" "$_data"; exit 3
+    else
+      json_ok "$_data"; exit 0
+    fi
   else
     echo "=== tv-vigil: Status ==="
     echo ""
@@ -167,14 +176,14 @@ if [ "$CMD" = "log" ]; then
   LOG_RAW=$(adb_sh "tail -n $LOG_LINES $REMOTE_LOG 2>/dev/null" | tr -d '\r')
 
   if [ "$JSON" = 1 ]; then
-    printf '{"lines":['
+    printf '{"ok":true,"error":null,"data":{"lines":['
     FIRST=1
     printf '%s\n' "$LOG_RAW" | while IFS= read -r line; do
       [ -z "$line" ] && continue
       [ "$FIRST" = 1 ] && FIRST=0 || printf ','
       printf '"%s"' "$(json_escape "$line")"
     done
-    printf ']}\n'
+    printf ']}}\n'
   else
     if [ -n "$LOG_RAW" ]; then
       printf '%s\n' "$LOG_RAW"
@@ -193,7 +202,7 @@ if [ "$CMD" = "stats" ]; then
 
   if [ -z "$STATS_RAW" ]; then
     if [ "$JSON" = 1 ]; then
-      printf '{"error":"no stats available"}\n'
+      json_err "no stats available"
     else
       echo "(no stats available — daemon may not have run yet)"
     fi
@@ -207,7 +216,7 @@ if [ "$CMD" = "stats" ]; then
     S_KILLS=$(printf '%s' "$STATS_RAW" | grep "^total_kills=" | sed 's/total_kills=//')
     S_SKIPS=$(printf '%s' "$STATS_RAW" | grep "^total_skips=" | sed 's/total_skips=//')
 
-    printf '{"pid":%s,' "$(json_num "$S_PID")"
+    printf '{"ok":true,"error":null,"data":{"pid":%s,' "$(json_num "$S_PID")"
     printf '"uptime_min":%s,' "$(json_num "$S_UPTIME")"
     printf '"total_cycles":%s,' "$(json_num "$S_CYCLES")"
     printf '"total_kills":%s,' "$(json_num "$S_KILLS")"
@@ -221,7 +230,7 @@ if [ "$CMD" = "stats" ]; then
       [ "$FIRST" = 1 ] && FIRST=0 || printf ','
       printf '"%s":%s' "$(json_escape "$pkg")" "$(json_num "$cnt")"
     done
-    printf '}}\n'
+    printf '}}}\n'
   else
     printf '%s\n' "$STATS_RAW"
   fi
@@ -252,14 +261,14 @@ if [ "$CMD" = "start" ]; then
   NEW_PID=$(get_daemon_pid)
   if [ -n "$NEW_PID" ]; then
     if [ "$JSON" = 1 ]; then
-      printf '{"ok":true,"pid":%s}\n' "$NEW_PID"
+      json_ok "$(printf '{"pid":%s}' "$NEW_PID")"
     else
       echo "Daemon started (PID $NEW_PID)"
     fi
     exit 0
   else
     if [ "$JSON" = 1 ]; then
-      printf '{"ok":false,"error":"daemon failed to start"}\n'
+      json_err "daemon failed to start"
     else
       echo "ERROR: Daemon failed to start."
     fi
@@ -273,7 +282,7 @@ fi
 if [ "$CMD" = "stop" ]; then
   if [ -z "$DAEMON_PID" ]; then
     if [ "$JSON" = 1 ]; then
-      printf '{"ok":true,"was_running":false}\n'
+      json_ok '{"was_running":false}'
     else
       echo "Daemon is not running."
     fi
@@ -287,14 +296,14 @@ if [ "$CMD" = "stop" ]; then
   VERIFY=$(get_daemon_pid)
   if [ -z "$VERIFY" ]; then
     if [ "$JSON" = 1 ]; then
-      printf '{"ok":true,"was_running":true,"killed_pid":%s}\n' "$DAEMON_PID"
+      json_ok "$(printf '{"was_running":true,"killed_pid":%s}' "$DAEMON_PID")"
     else
       echo "Daemon stopped (was PID $DAEMON_PID)"
     fi
     exit 0
   else
     if [ "$JSON" = 1 ]; then
-      printf '{"ok":false,"error":"failed to stop daemon","pid":%s}\n' "$DAEMON_PID"
+      json_err "failed to stop daemon" "$(printf '{"pid":%s}' "$DAEMON_PID")"
     else
       echo "ERROR: Failed to stop daemon (PID $DAEMON_PID)"
     fi

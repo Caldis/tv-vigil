@@ -1,4 +1,5 @@
 {
+  "schema_version": 1,
   "name": "tv-vigil",
   "description": "Android TV background app watchdog — auto-kills rogue apps lingering in background without root. Deploys via ADB, survives reboots with watchdog.",
   "prerequisites": {

@@ -106,7 +106,7 @@ cat watchdog.log
 
 ## Agent / 自动化接口
 
-`vigil.sh` 支持 `--json` 参数输出结构化 JSON，方便 AI agent 和脚本调用：
+`vigil.sh` 支持 `--json` 参数输出结构化 JSON，所有响应使用统一信封格式 `{ok, error, data}`：
 
 ```bash
 ./vigil.sh --json status
@@ -120,14 +120,18 @@ cat watchdog.log
 
 ```json
 {
-  "connected": true,
-  "daemon": "running",
-  "pid": 1234,
-  "uptime_min": 45,
-  "total_cycles": 27,
-  "total_kills": 3,
-  "total_skips": 1,
-  "script_installed": true
+  "ok": true,
+  "error": null,
+  "data": {
+    "connected": true,
+    "daemon": "running",
+    "pid": 1234,
+    "uptime_min": 45,
+    "total_cycles": 27,
+    "total_kills": 3,
+    "total_skips": 1,
+    "script_installed": true
+  }
 }
 ```
 
